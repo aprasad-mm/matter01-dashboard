@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+"""
+Build matter01 dashboard for GitHub Pages.
+
+If LINEAR_API_KEY env var is set, fetches live data from Linear
+and bakes it into index.html at build time (no browser-side API calls).
+Otherwise falls back to the snapshot data.
+
+Usage:
+  LINEAR_API_KEY=lin_api_xxx python build_v2.py
+  python build_v2.py                 # uses snapshot data
+"""
+import json, os, sys, urllib.request, urllib.error
+from datetime import datetime
+
+INIT_ID   = "6fc15c24-8a98-4566-b232-1b489fbcc4b2"
+INIT_URL  = "https://linear.app/makematter/initiative/matter01-30d7c0c7568c"
+API_KEY   = os.environ.get('LINEAR_API_KEY', '')
+
+# ── Snapshot data (fallback) ──────────────────────────────────────────────────
+SNAPSHOT = [
+  {"id":"2d68d4e4-767c-4ca8-8c3e-3000c10b6be9","name":"Making Matter | Drone FATP","shortName":"Drone FATP","workstream":"Making Matter","wsIcon":"🏭","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2026-02-02","targetDate":"2026-04-01","lead":"Han Xu","url":"https://linear.app/makematter/project/making-matter-or-drone-fatp-45d75f6e7095","milestones":[{"name":"Concept & Sourcing","date":"2026-02-20","progress":81},{"name":"Detailed Design","date":"2026-02-20","progress":25},{"name":"Conveyor Arrival","date":"2026-03-13","progress":0},{"name":"Installation & Commissioning","date":"2026-03-20","progress":0},{"name":"Start of Production","date":"2026-03-27","progress":0},{"name":"FATP Quality Data Integration","date":"2026-03-27","progress":0}]},
+  {"id":"f91a93be-ac1e-4123-b692-1466084240da","name":"Making Matter | Pilot Build Readiness","shortName":"Pilot Build Readiness","workstream":"Making Matter","wsIcon":"🏭","status":"In Progress","priorityVal":2,"priority":"High","startDate":"2026-02-24","targetDate":"2026-03-27","lead":"Glen","url":"https://linear.app/makematter/project/making-matter-or-pilot-build-readiness-27148fc995e5","milestones":[{"name":"Set Up Lab Spaces","date":None,"progress":20}]},
+  {"id":"3d98ba19-8cf4-48e0-904f-cd538dbb5650","name":"Autonomy Matters | Environmental Data","shortName":"Environmental Data","workstream":"Autonomy Matters","wsIcon":"🤖","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2026-02-24","targetDate":"2026-03-27","lead":"Han Xu","url":"https://linear.app/makematter/project/autonomy-matters-or-environmental-data-77f7b633055d","milestones":[]},
+  {"id":"af1a1b0c-a06f-4264-8826-39e9224fd13b","name":"Autonomy Matters | Eastwin","shortName":"Eastwin","workstream":"Autonomy Matters","wsIcon":"🤖","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2026-01-05","targetDate":"2026-03-27","lead":"Glen","url":"https://linear.app/makematter/project/autonomy-matters-or-eastwin-c3780d425855","milestones":[{"name":"CG Flex Connect & Decking","date":"2026-04-10","progress":0},{"name":"Display Tester","date":"2026-05-13","progress":31}]},
+  {"id":"79df3f52-cece-4207-8415-746b13bda308","name":"Autonomy Matters | Vention","shortName":"Vention","workstream":"Autonomy Matters","wsIcon":"🤖","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2026-01-05","targetDate":"2026-03-27","lead":"Sam Lynch","url":"https://linear.app/makematter/project/autonomy-matters-or-vention-ba00557ba5e8","milestones":[{"name":"Apply/Peel Station","date":None,"progress":85},{"name":"Load & Secure Station","date":None,"progress":0},{"name":"Dispense Station","date":None,"progress":0},{"name":"Base Machine","date":"2026-03-27","progress":19}]},
+  {"id":"391b563c-94dd-4295-844b-73e0ae39ebb8","name":"Design Matters | PAC Framework","shortName":"PAC Framework","workstream":"Design Matters","wsIcon":"✏️","status":"Planned","priorityVal":3,"priority":"Medium","startDate":"2026-02-02","targetDate":"2026-03-27","lead":"Han Xu","url":"https://linear.app/makematter/project/design-matters-or-pac-framework-cd701ccaea3a","milestones":[]},
+  {"id":"02a45ca8-7be0-45bf-aabb-f709f864da85","name":"Design Matters | DFSC","shortName":"DFSC","workstream":"Design Matters","wsIcon":"✏️","status":"Planned","priorityVal":2,"priority":"High","startDate":"2026-02-19","targetDate":"2026-03-27","lead":"Supriya Suresh","url":"https://linear.app/makematter/project/design-matters-or-dfsc-19dc74c34bf6","milestones":[]},
+  {"id":"98b6127d-180a-4fda-a828-0b9742a92a13","name":"Design Matters | DFMA","shortName":"DFMA","workstream":"Design Matters","wsIcon":"✏️","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2026-02-17","targetDate":"2026-03-27","lead":"S. Youngberg","url":"https://linear.app/makematter/project/design-matters-or-dfma-8e3d0294764b","milestones":[{"name":"Complete Teardown","date":"2026-03-01","progress":25},{"name":"Draft TV Display","date":"2026-03-02","progress":17},{"name":"Final Presentations","date":"2026-03-16","progress":0},{"name":"Dry Run DFMA Area","date":"2026-03-23","progress":0},{"name":"Finalize DFMA Area","date":"2026-03-27","progress":0}]},
+  {"id":"4565c534-79ce-44de-a83c-2100f87444be","name":"Design Matters | DFQ","shortName":"DFQ","workstream":"Design Matters","wsIcon":"✏️","status":"In Progress","priorityVal":2,"priority":"High","startDate":"2026-02-17","targetDate":"2026-03-27","lead":"D. Burgerhoff","url":"https://linear.app/makematter/project/design-matters-or-dfq-326e461fada0","milestones":[]},
+  {"id":"cd034eda-b7a0-4b80-a683-60ae75a94f27","name":"970 Stewart Facility Readiness","shortName":"970 Stewart","workstream":"Facility","wsIcon":"🏢","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2026-02-23","targetDate":"2026-04-01","lead":"Doug Rhodes","url":"https://linear.app/makematter/project/970-stewart-facility-readiness-687a7fb0aa59","milestones":[{"name":"Finalize Contract","date":"2026-02-16","progress":100},{"name":"Initial Move In","date":"2026-03-02","progress":29},{"name":"Phase 1 Ready","date":"2026-04-01","progress":65},{"name":"Phase 2 Ready","date":None,"progress":8}]},
+  {"id":"205f5e2f-1893-4126-ab10-c13ac532b59a","name":"Facts | All Things Data","shortName":"All Things Data","workstream":"Facts & Data","wsIcon":"📊","status":"In Progress","priorityVal":1,"priority":"Urgent","startDate":"2025-12-15","targetDate":"2026-04-05","lead":"aish@makematter.co","url":"https://linear.app/makematter/project/facts-or-all-things-data-04f3b6100054","milestones":[{"name":"MVP","date":"2026-04-05","progress":41},{"name":"Release 0.1","date":"2026-06-30","progress":0}]},
+]
+
+# ── Live data fetch (Python-side, runs in GitHub Actions) ─────────────────────
+PRIORITY_NAME = {0:'None',1:'Urgent',2:'High',3:'Normal',4:'Low'}
+WS_ICON = {"Making Matter":"🏭","Autonomy Matters":"🤖","Design Matters":"✏️","Facility":"🏢","Facts & Data":"📊"}
+
+def get_ws(name):
+    if name.startswith('Making Matter'):         return 'Making Matter'
+    if name.startswith('Autonomy'):              return 'Autonomy Matters'
+    if name.startswith('Design'):               return 'Design Matters'
+    if 'Facility' in name or 'Stewart' in name: return 'Facility'
+    if name.startswith('Facts'):                return 'Facts & Data'
+    return 'Other'
+
+def fetch_linear():
+    query = '''{ initiative(id:"%s"){ name projects{ nodes{
+      id name startDate targetDate priority
+      lead{ name }
+      status{ name }
+      projectMilestones{ nodes{ id name targetDate completedAt } }
+    }}}}''' % INIT_ID
+
+    req = urllib.request.Request(
+        'https://api.linear.app/graphql',
+        data=json.dumps({'query': query}).encode(),
+        headers={'Content-Type': 'application/json', 'Authorization': API_KEY},
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        result = json.loads(resp.read())
+
+    if 'errors' in result:
+        raise ValueError(result['errors'][0].get('message', 'GraphQL error'))
+
+    nodes = result['data']['initiative']['projects']['nodes']
+    snap_map = {p['id']: p for p in SNAPSHOT}
+    projects = []
+
+    for p in nodes:
+        n = p.get('name', '')
+        ws = get_ws(n)
+        short_name = n.split('|')[1].strip() if '|' in n else n
+        snap = snap_map.get(p['id'])
+
+        # Prefer snapshot milestones (have richer progress data); fall back to API
+        if snap:
+            milestones = snap['milestones']
+        else:
+            milestones = [
+                {'name': m['name'], 'date': m.get('targetDate'), 'progress': 100 if m.get('completedAt') else 0}
+                for m in (p.get('projectMilestones', {}).get('nodes') or [])
+            ]
+
+        projects.append({
+            'id': p['id'], 'name': n, 'shortName': short_name,
+            'workstream': ws, 'wsIcon': WS_ICON.get(ws, ''),
+            'status': (p.get('status') or {}).get('name', 'Unknown'),
+            'priorityVal': p.get('priority', 4),
+            'priority': PRIORITY_NAME.get(p.get('priority', 4), 'Normal'),
+            'startDate': p.get('startDate') or (snap['startDate'] if snap else None),
+            'targetDate': p.get('targetDate') or (snap['targetDate'] if snap else None),
+            'lead': (p.get('lead') or {}).get('name') or (snap['lead'] if snap else '—'),
+            'url': snap['url'] if snap else 'https://linear.app/makematter',
+            'milestones': milestones,
+        })
+
+    return projects
+
+# ── Resolve project data ──────────────────────────────────────────────────────
+if API_KEY:
+    try:
+        PROJECTS = fetch_linear()
+        d = datetime.now()
+        SNAP_DATE = f"{d.strftime('%b')} {d.day}, {d.year} (live)"
+        print(f"✓ Fetched {len(PROJECTS)} projects from Linear")
+    except Exception as e:
+        print(f"⚠ Linear fetch failed: {e}. Falling back to snapshot.", file=sys.stderr)
+        PROJECTS = SNAPSHOT
+        SNAP_DATE = "Feb 24, 2026 (snapshot)"
+else:
+    print("No LINEAR_API_KEY set — using snapshot data.")
+    PROJECTS = SNAPSHOT
+    SNAP_DATE = "Feb 24, 2026 (snapshot)"
+
+DATA_JSON = json.dumps(PROJECTS, separators=(',',':'))
+
+# ── HTML template ─────────────────────────────────────────────────────────────
+HTML = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>matter01 — Initiative Dashboard</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh}
+a{color:inherit;text-decoration:none}
+/* Layout */
+.page{max-width:1400px;margin:0 auto;padding:0 24px 80px}
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;padding:24px 0 20px;border-bottom:1px solid #1e2535;margin-bottom:28px;flex-wrap:wrap;gap:16px}
+.header-left{display:flex;align-items:center;gap:16px}
+.badge{background:#f2c94c;color:#0d1117;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
+.h-title{font-size:22px;font-weight:700;color:#f1f5f9}
+.h-meta{display:flex;gap:20px;margin-top:5px;font-size:13px;color:#64748b}
+.h-meta span{display:flex;align-items:center;gap:5px}
+.header-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn-outline{background:transparent;border:1px solid #2a3040;color:#94a3b8}
+.btn-outline:hover{border-color:#3b82f6;color:#3b82f6}
+.btn-primary{background:#3b82f6;color:#fff}
+.btn-primary:hover{background:#2563eb}
+.btn-link{color:#3b82f6;font-size:13px;padding:8px 16px;border:1px solid #1e3a5f;border-radius:8px}
+.btn-link:hover{background:#1e3a5f}
+/* Section */
+.section{margin-bottom:40px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+.section-title{font-size:16px;font-weight:600;color:#cbd5e1;letter-spacing:.3px}
+/* Gantt */
+.gantt-wrap{overflow-x:auto;border:1px solid #1e2535;border-radius:10px;background:#0a0d14}
+.gantt-wrap svg{display:block}
+/* Legend */
+.legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b}
+.leg-bar{width:20px;height:10px;border-radius:3px}
+.leg-ip{background:#2563eb}
+.leg-pl{background:#d97706}
+.leg-dia{font-size:14px}
+/* Stat cards */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:0}
+.stat-card{background:#111827;border:1px solid #1e2535;border-radius:10px;padding:18px 20px}
+.stat-val{font-size:28px;font-weight:700;line-height:1}
+.stat-lbl{font-size:12px;color:#64748b;margin-top:6px}
+.stat-val.blue{color:#3b82f6}
+.stat-val.green{color:#22c55e}
+.stat-val.amber{color:#f59e0b}
+.stat-val.red{color:#ef4444}
+.stat-val.gray{color:#94a3b8}
+/* Milestones table */
+.ms-table{width:100%;border-collapse:collapse;font-size:13px}
+.ms-table th{text-align:left;padding:10px 14px;color:#4b5563;font-weight:500;border-bottom:1px solid #1e2535;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.ms-table td{padding:10px 14px;border-bottom:1px solid #111827;vertical-align:middle}
+.ms-table tr:hover td{background:#111827}
+.ms-date{font-variant-numeric:tabular-nums}
+.days-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.days-done{background:#14532d;color:#4ade80}
+.days-ok{background:#1e3a5f;color:#60a5fa}
+.days-near{background:#78350f;color:#fbbf24}
+.days-over{background:#450a0a;color:#f87171}
+.prio-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.prio-1{background:#ef4444}
+.prio-2{background:#f97316}
+.prio-3{background:#f59e0b}
+.prio-4{background:#6b7280}
+/* Project workstream cards */
+.ws-section{margin-bottom:28px}
+.ws-header{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#111827;border-radius:8px 8px 0 0;border:1px solid #1e2535;border-bottom:none}
+.ws-name{font-size:14px;font-weight:600;color:#e2e8f0}
+.ws-count{font-size:12px;color:#4b5563;background:#1e2535;padding:2px 8px;border-radius:20px}
+.proj-row{display:grid;grid-template-columns:1fr 90px 110px 130px 1fr;align-items:center;gap:14px;padding:12px 16px;border:1px solid #1e2535;border-top:none;font-size:13px;transition:background .1s}
+.proj-row:hover{background:#111827}
+.proj-row:last-child{border-radius:0 0 8px 8px}
+.proj-name{font-weight:500;color:#cbd5e1;display:flex;align-items:center;gap:6px}
+.proj-name a:hover{color:#3b82f6}
+.status-pill{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;display:inline-block}
+.s-ip{background:#1e3a5f;color:#60a5fa}
+.s-pl{background:#451a03;color:#fbbf24}
+.s-bl{background:#1f2937;color:#6b7280}
+.proj-lead{color:#64748b;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-bar-wrap{display:flex;align-items:center;gap:8px}
+.ms-bar-bg{flex:1;height:5px;background:#1e2535;border-radius:3px;overflow:hidden}
+.ms-bar-fill{height:5px;border-radius:3px;background:#3b82f6}
+.ms-pct{font-size:11px;color:#4b5563;white-space:nowrap}
+.proj-target{color:#64748b;font-size:12px;text-align:right}
+.proj-header{display:grid;grid-template-columns:1fr 90px 110px 130px 1fr;gap:14px;padding:6px 16px;font-size:11px;color:#374151;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border:1px solid #1e2535;border-top:none}
+.toast{position:fixed;bottom:24px;right:24px;background:#1e2535;border:1px solid #2a3040;border-radius:10px;padding:14px 20px;font-size:13px;z-index:300;animation:slideIn .2s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <span class="badge">matter01</span>
+    <div>
+      <div class="h-title">matter01 — Factory Launch Initiative</div>
+      <div class="h-meta">
+        <span>👤 Han Xu</span>
+        <span>📅 Target: Apr 1, 2026</span>
+        <span>🔄 Updated: ''' + SNAP_DATE + '''</span>
+      </div>
+    </div>
+  </div>
+  <div class="header-right">
+    <a href="''' + INIT_URL + '''" target="_blank" class="btn-link">Open in Linear ↗</a>
+    <button class="btn btn-outline" onclick="showAutoUpdateInfo()">⟳ Auto-updates daily</button>
+  </div>
+</header>
+
+<!-- GANTT CHART -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-title">📅 Timeline Overview</span>
+    <div class="legend">
+      <span class="leg"><span class="leg-bar leg-ip"></span> In Progress</span>
+      <span class="leg"><span class="leg-bar leg-pl"></span> Planned</span>
+      <span class="leg"><span class="leg-dia" style="color:#22c55e">◆</span> Done</span>
+      <span class="leg"><span class="leg-dia" style="color:#ef4444">◆</span> Overdue</span>
+      <span class="leg"><span class="leg-dia" style="color:#f59e0b">◆</span> Upcoming</span>
+      <span class="leg"><span style="display:inline-block;width:16px;border-top:2px dashed #ef4444"></span> Today</span>
+    </div>
+  </div>
+  <div class="gantt-wrap" id="gantt-wrap"></div>
+</div>
+
+<!-- STATS -->
+<div class="section">
+  <div class="section-header"><span class="section-title">Summary</span></div>
+  <div class="stat-grid" id="stat-grid"></div>
+</div>
+
+<!-- UPCOMING MILESTONES -->
+<div class="section">
+  <div class="section-header"><span class="section-title">🎯 Upcoming Milestones</span></div>
+  <div style="border:1px solid #1e2535;border-radius:10px;overflow:hidden">
+    <table class="ms-table" id="ms-table"></table>
+  </div>
+</div>
+
+<!-- PROJECTS BY WORKSTREAM -->
+<div class="section">
+  <div class="section-header"><span class="section-title">📋 Projects by Workstream</span></div>
+  <div id="projects-wrap"></div>
+</div>
+
+</div><!-- /page -->
+
+
+<script>
+const INIT_ID = "''' + INIT_ID + '''";
+const SNAPSHOT = ''' + DATA_JSON + ''';
+
+// ── Workstream ordering ──────────────────────────────────────────────────────
+const WS_ORDER = ["Making Matter","Autonomy Matters","Design Matters","Facility","Facts & Data"];
+
+// ── Date helpers ─────────────────────────────────────────────────────────────
+function parseDate(s){ return s ? new Date(s + (s.length===10?'T12:00:00':'')) : null; }
+function fmtDate(s){ if(!s) return '—'; const d=parseDate(s); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function daysAway(s){ if(!s) return null; const d=parseDate(s); return Math.round((d-new Date())/86400000); }
+function daysBadge(s){
+  const n=daysAway(s);
+  if(n===null) return '<span class="days-badge days-ok">No date</span>';
+  if(n<-1)  return `<span class="days-badge days-over">${Math.abs(n)}d overdue</span>`;
+  if(n===0) return '<span class="days-badge days-near">Today</span>';
+  if(n<=7)  return `<span class="days-badge days-near">in ${n}d</span>`;
+  return `<span class="days-badge days-ok">in ${n}d</span>`;
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+function renderStats(projects){
+  const total = projects.length;
+  const ip    = projects.filter(p=>p.status==='In Progress').length;
+  const pl    = projects.filter(p=>p.status==='Planned').length;
+  const msList= projects.flatMap(p=>(p.milestones||[]).filter(m=>m.date));
+  const urgent= msList.filter(m=>{ const n=daysAway(m.date); return n!==null&&n>=0&&n<=14&&m.progress<100; }).length;
+  const done  = msList.filter(m=>m.progress>=100).length;
+  const allMs = msList.length;
+  const avgP  = allMs ? Math.round(msList.reduce((s,m)=>s+m.progress,0)/allMs) : 0;
+  document.getElementById('stat-grid').innerHTML = [
+    `<div class="stat-card"><div class="stat-val blue">${total}</div><div class="stat-lbl">Projects</div></div>`,
+    `<div class="stat-card"><div class="stat-val blue">${ip}</div><div class="stat-lbl">In Progress</div></div>`,
+    `<div class="stat-card"><div class="stat-val amber">${pl}</div><div class="stat-lbl">Planned</div></div>`,
+    `<div class="stat-card"><div class="stat-val green">${done}</div><div class="stat-lbl">Milestones Done</div></div>`,
+    `<div class="stat-card"><div class="stat-val red">${urgent}</div><div class="stat-lbl">Due Within 2 Wks</div></div>`,
+    `<div class="stat-card"><div class="stat-val gray">${avgP}%</div><div class="stat-lbl">Avg MS Progress</div></div>`,
+  ].join('');
+}
+
+// ── Milestones table ─────────────────────────────────────────────────────────
+function renderMilestones(projects){
+  const rows = [];
+  for(const p of projects){
+    for(const m of (p.milestones||[])){
+      if(!m.date) continue;
+      rows.push({...m, projName:p.shortName||p.name, projUrl:p.url, prio:p.priorityVal, wsDays:daysAway(m.date)||9999});
+    }
+  }
+  rows.sort((a,b)=>{
+    if(a.progress>=100 && b.progress<100) return 1;
+    if(b.progress>=100 && a.progress<100) return -1;
+    return a.wsDays-b.wsDays;
+  });
+  const shown = rows.slice(0,14);
+  const thead = `<thead><tr><th>Project</th><th>Milestone</th><th>Due Date</th><th>Days</th><th>Progress</th></tr></thead>`;
+  const tbody = shown.map(m=>{
+    const doneCls = m.progress>=100 ? 'style="opacity:.45"' : '';
+    const pBar = `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:5px;background:#1e2535;border-radius:3px;overflow:hidden"><div style="height:5px;width:${m.progress}%;background:${m.progress>=100?'#22c55e':'#3b82f6'};border-radius:3px"></div></div><span style="font-size:11px;color:#4b5563;white-space:nowrap">${m.progress}%</span></div>`;
+    return `<tr ${doneCls}><td><a href="${m.projUrl}" target="_blank" style="color:#94a3b8">${escH(m.projName)}</a></td><td style="color:#cbd5e1">${escH(m.name)}</td><td class="ms-date">${fmtDate(m.date)}</td><td>${daysBadge(m.date)}</td><td style="min-width:130px">${pBar}</td></tr>`;
+  }).join('');
+  document.getElementById('ms-table').innerHTML = thead+`<tbody>${tbody}</tbody>`;
+}
+
+// ── Project cards ─────────────────────────────────────────────────────────────
+function renderProjects(projects){
+  const grouped = {};
+  for(const ws of WS_ORDER) grouped[ws]=[];
+  for(const p of projects)(grouped[p.workstream]||(grouped[p.workstream]=[])).push(p);
+  const wsIcon = {"Making Matter":"🏭","Autonomy Matters":"🤖","Design Matters":"✏️","Facility":"🏢","Facts & Data":"📊"};
+  let html='';
+  for(const ws of WS_ORDER){
+    const projs = grouped[ws];
+    if(!projs||!projs.length) continue;
+    const avgMs = projs.flatMap(p=>p.milestones||[]);
+    const avgPct = avgMs.length ? Math.round(avgMs.reduce((s,m)=>s+m.progress,0)/avgMs.length) : null;
+    html += `<div class="ws-section">`;
+    html += `<div class="ws-header"><span style="font-size:18px">${wsIcon[ws]||'•'}</span><span class="ws-name">${ws}</span><span class="ws-count">${projs.length}</span>${avgPct!==null?`<span style="margin-left:auto;font-size:12px;color:#4b5563">${avgPct}% avg progress</span>`:''}</div>`;
+    html += `<div class="proj-header"><div>Project</div><div>Status</div><div>Lead</div><div>Target Date</div><div>MS Progress</div></div>`;
+    for(const p of projs){
+      const sCls = p.status==='In Progress'?'s-ip':p.status==='Planned'?'s-pl':'s-bl';
+      const msList=(p.milestones||[]).filter(m=>m.date!==undefined);
+      const avgP = msList.length ? Math.round(msList.reduce((s,m)=>s+m.progress,0)/msList.length) : null;
+      const msBar = avgP!==null
+        ? `<div class="ms-bar-wrap"><div class="ms-bar-bg"><div class="ms-bar-fill" style="width:${avgP}%"></div></div><span class="ms-pct">${avgP}%</span></div>`
+        : `<span style="color:#374151;font-size:12px">No milestones</span>`;
+      const priCls=`prio-${p.priorityVal||4}`;
+      const dtLabel = p.targetDate ? fmtDate(p.targetDate) + (daysAway(p.targetDate)<0?` <span style="color:#ef4444;font-size:11px">(overdue)</span>`:``) : '—';
+      html += `<div class="proj-row"><div class="proj-name"><span class="prio-dot ${priCls}"></span><a href="${p.url}" target="_blank">${escH(p.shortName||p.name)}</a></div><div><span class="status-pill ${sCls}">${p.status}</span></div><div class="proj-lead">${escH(p.lead||'—')}</div><div class="proj-target">${dtLabel}</div><div>${msBar}</div></div>`;
+    }
+    html += '</div>';
+  }
+  document.getElementById('projects-wrap').innerHTML = html;
+}
+
+// ── Gantt chart ───────────────────────────────────────────────────────────────
+function renderGantt(projects){
+  const G_START = new Date('2026-01-01T00:00:00');
+  const G_END   = new Date('2026-06-01T00:00:00');
+  const G_MS    = G_END - G_START;
+
+  const LEFT=210, RIGHT=24, ROW=36, BAR_H=16, GRP_H=28, HDR=48, SVG_W=1160;
+  const TW = SVG_W - LEFT - RIGHT;
+
+  function xOf(dateStr){
+    if(!dateStr) return null;
+    const d = parseDate(dateStr);
+    const pct = (d-G_START)/G_MS;
+    return LEFT + pct*TW;
+  }
+  function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+
+  const grouped={};
+  for(const ws of WS_ORDER) grouped[ws]=[];
+  for(const p of projects)(grouped[p.workstream]||(grouped[p.workstream]=[])).push(p);
+
+  let rowCount=0;
+  for(const ws of WS_ORDER) if(grouped[ws]&&grouped[ws].length){ rowCount+=1+grouped[ws].length; }
+  const SVG_H = HDR + rowCount*ROW + 20;
+
+  const s = [];
+  s.push(`<svg viewBox="0 0 ${SVG_W} ${SVG_H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:800px;display:block">`);
+  s.push(`<rect width="${SVG_W}" height="${SVG_H}" fill="#0a0d14"/>`);
+  s.push(`<rect x="0" y="0" width="${LEFT}" height="${SVG_H}" fill="#0a0d14"/>`);
+
+  const headerLabels = [];
+  const monthNames=['Jan','Feb','Mar','Apr','May','Jun'];
+  for(let mo=0;mo<6;mo++){
+    const x=xOf(`2026-0${mo+1}-01`)||(LEFT+mo*(TW/6));
+    const xS=`${x.toFixed(1)}`;
+    if(x<LEFT) continue;
+    s.push(`<line x1="${xS}" y1="${HDR-8}" x2="${xS}" y2="${SVG_H}" stroke="#161d2c" stroke-width="1"/>`);
+    headerLabels.push(`<text x="${(x+5).toFixed(1)}" y="18" fill="#94a3b8" font-size="11" font-weight="600" font-family="system-ui,sans-serif">${monthNames[mo]}</text>`);
+  }
+  for(let d=0;d<155;d+=14){
+    const dt=new Date(G_START.getTime()+d*86400000);
+    const x=xOf(dt.toISOString().slice(0,10));
+    if(!x||x<LEFT) continue;
+    s.push(`<line x1="${x.toFixed(1)}" y1="${HDR}" x2="${x.toFixed(1)}" y2="${SVG_H}" stroke="#0f131d" stroke-width="1"/>`);
+  }
+
+  const todayX = xOf(new Date().toISOString().slice(0,10));
+  if(todayX){
+    const tx=todayX.toFixed(1);
+    s.push(`<line x1="${tx}" y1="0" x2="${tx}" y2="${SVG_H}" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3"/>`);
+    headerLabels.push(`<text x="${(todayX+3).toFixed(1)}" y="38" fill="#ef4444" font-size="10" font-weight="600" font-family="system-ui,sans-serif">Today</text>`);
+  }
+
+  const targetX = xOf('2026-04-01');
+  if(targetX){
+    const apx=targetX.toFixed(1);
+    s.push(`<line x1="${apx}" y1="${HDR}" x2="${apx}" y2="${SVG_H}" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,4" opacity=".5"/>`);
+    headerLabels.push(`<text x="${(targetX+3).toFixed(1)}" y="38" fill="#f59e0b" font-size="9" font-weight="600" opacity=".9" font-family="system-ui,sans-serif">Target</text>`);
+  }
+
+  const wsIcon = {"Making Matter":"🏭","Autonomy Matters":"🤖","Design Matters":"✏️","Facility":"🏢","Facts & Data":"📊"};
+  let y = HDR;
+  const topLabels = [];
+
+  for(const ws of WS_ORDER){
+    const projs = grouped[ws];
+    if(!projs||!projs.length) continue;
+
+    s.push(`<rect x="0" y="${y}" width="${SVG_W}" height="${GRP_H}" fill="#0f1320"/>`);
+    topLabels.push(`<text x="10" y="${(y+GRP_H/2+4).toFixed(1)}" fill="#ffffff" font-size="12" font-weight="700" font-family="system-ui,sans-serif">${wsIcon[ws]||''} ${ws}</text>`);
+    y += GRP_H;
+
+    for(let pi=0;pi<projs.length;pi++){
+      const p = projs[pi];
+      const rowY = y;
+      const barY = (rowY + (ROW-BAR_H)/2).toFixed(1);
+      const midY = (rowY + ROW/2).toFixed(1);
+
+      const rowBg = pi%2===0 ? '#0a0d14' : '#0c1018';
+      s.push(`<rect x="0" y="${rowY}" width="${SVG_W}" height="${ROW}" fill="${rowBg}"/>`);
+
+      const priColor = p.priorityVal===1?'#ef4444':p.priorityVal===2?'#f97316':p.priorityVal===3?'#f59e0b':'#6b7280';
+      s.push(`<rect x="2" y="${rowY+5}" width="3" height="${ROW-10}" rx="1.5" fill="${priColor}" opacity=".7"/>`);
+
+      const rawName = p.shortName||p.name;
+      const label = rawName.length>22 ? rawName.slice(0,21)+'…' : rawName;
+      topLabels.push(`<text x="12" y="${(rowY+ROW/2+4).toFixed(1)}" fill="#ffffff" font-size="11" font-family="system-ui,sans-serif">${escXML(label)}</text>`);
+
+      if(p.startDate && p.targetDate){
+        const rawX1 = xOf(p.startDate);
+        const rawX2 = xOf(p.targetDate);
+        const x1 = clamp(rawX1, LEFT, SVG_W-RIGHT).toFixed(1);
+        const x2 = clamp(rawX2, LEFT, SVG_W-RIGHT).toFixed(1);
+        const bw = Math.max(parseFloat(x2)-parseFloat(x1), 4).toFixed(1);
+        const barColor = p.status==='In Progress'?'#1d4ed8':p.status==='Planned'?'#92400e':'#1f2937';
+        const barFill  = p.status==='In Progress'?'#2563eb':p.status==='Planned'?'#d97706':'#374151';
+        s.push(`<rect x="${x1}" y="${barY}" width="${bw}" height="${BAR_H}" rx="3" fill="${barColor}"/>`);
+        s.push(`<rect x="${x1}" y="${barY}" width="4" height="${BAR_H}" rx="2" fill="${barFill}"/>`);
+      }
+
+      for(const m of (p.milestones||[])){
+        if(!m.date) continue;
+        const mx = xOf(m.date);
+        if(!mx||mx<LEFT||mx>SVG_W-RIGHT) continue;
+        const isDone = m.progress>=100;
+        const isLate = !isDone && parseDate(m.date)<new Date();
+        const dColor = isDone?'#22c55e':isLate?'#ef4444':'#f59e0b';
+        const dSize  = 7;
+        const mxF=mx.toFixed(1), myF=midY;
+        const pts=`${mxF},${(parseFloat(myF)-dSize).toFixed(1)} ${(parseFloat(mxF)+dSize).toFixed(1)},${myF} ${mxF},${(parseFloat(myF)+dSize).toFixed(1)} ${(parseFloat(mxF)-dSize).toFixed(1)},${myF}`;
+        s.push(`<polygon points="${pts}" fill="${dColor}" stroke="#0a0d14" stroke-width="1.5"><title>${escXML(m.name)} (${m.date}) · ${m.progress}%</title></polygon>`);
+      }
+      y += ROW;
+    }
+  }
+
+  s.push(`<rect x="0" y="0" width="${SVG_W}" height="${HDR}" fill="#0a0d14" opacity=".97"/>`);
+  s.push(...topLabels);
+  s.push(...headerLabels);
+  s.push(`<text x="10" y="30" fill="#94a3b8" font-size="11" font-weight="600" font-family="system-ui,sans-serif">Project</text>`);
+  s.push(`<text x="${(LEFT+10).toFixed(1)}" y="18" fill="#94a3b8" font-size="11" font-weight="600" font-family="system-ui,sans-serif">Month</text>`);
+  s.push(`<line x1="${LEFT}" y1="0" x2="${LEFT}" y2="${SVG_H}" stroke="#1e2535" stroke-width="1"/>`);
+  s.push(`<line x1="0" y1="${HDR}" x2="${SVG_W}" y2="${HDR}" stroke="#1e2535" stroke-width="1"/>`);
+
+  s.push('</svg>');
+  document.getElementById('gantt-wrap').innerHTML = s.join('\\n');
+}
+
+// ── Escape helpers ────────────────────────────────────────────────────────────
+function escH(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escXML(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Render all ────────────────────────────────────────────────────────────────
+function renderAll(projects){
+  renderGantt(projects);
+  renderStats(projects);
+  renderMilestones(projects);
+  renderProjects(projects);
+}
+
+function showToast(msg, isErr){
+  const t=document.createElement('div');
+  t.className='toast';
+  t.textContent=msg;
+  if(isErr) t.style.borderColor='#ef4444';
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),5000);
+}
+
+function showAutoUpdateInfo(){
+  showToast('📅 Dashboard auto-refreshes daily at 9 AM via GitHub Actions');
+}
+
+// Init — render baked-in data immediately
+renderAll(SNAPSHOT);
+</script>
+</body>
+</html>'''
+
+out = 'index.html'
+with open(out, 'w') as f:
+    f.write(HTML)
+print(f"Done — {len(HTML):,} chars → {out}")

@@ -59,7 +59,7 @@ def fetch_linear():
             state
             lead { name displayName }
             projectMilestones {
-              nodes { id name targetDate completedAt }
+              nodes { id name targetDate completionDate }
             }
           }
         }
@@ -99,7 +99,7 @@ def fetch_linear():
             milestones = snap['milestones']
         else:
             milestones = [
-                {'name': m['name'], 'date': m.get('targetDate'), 'progress': 100 if m.get('completedAt') else 0}
+                {'name': m['name'], 'date': m.get('targetDate'), 'progress': 100 if m.get('completionDate') else 0}
                 for m in (p.get('projectMilestones', {}).get('nodes') or [])
             ]
 

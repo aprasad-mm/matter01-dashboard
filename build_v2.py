@@ -59,7 +59,7 @@ def fetch_linear():
             state
             lead { name displayName }
             projectMilestones {
-              nodes { id name targetDate completionDate }
+              nodes { id name targetDate }
             }
           }
         }

@@ -45,12 +45,27 @@ def get_ws(name):
     return 'Other'
 
 def fetch_linear():
-    query = '''{ initiative(id:"%s"){ name projects{ nodes{
-      id name startDate targetDate priority
-      lead{ name }
-      status{ name }
-      projectMilestones{ nodes{ id name targetDate completedAt } }
-    }}}}''' % INIT_ID
+    query = """
+    {
+      initiative(id: "%s") {
+        name
+        projects {
+          nodes {
+            id
+            name
+            startDate
+            targetDate
+            priority
+            state
+            lead { name displayName }
+            projectMilestones {
+              nodes { id name targetDate completedAt }
+            }
+          }
+        }
+      }
+    }
+    """ % INIT_ID
 
     req = urllib.request.Request(
         'https://api.linear.app/graphql',
@@ -58,11 +73,16 @@ def fetch_linear():
         headers={'Content-Type': 'application/json', 'Authorization': API_KEY},
         method='POST'
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        result = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.HTTPError as http_err:
+        body = http_err.read().decode('utf-8', errors='replace')
+        raise ValueError(f"HTTP {http_err.code} from Linear: {body[:800]}")
 
     if 'errors' in result:
-        raise ValueError(result['errors'][0].get('message', 'GraphQL error'))
+        msgs = '; '.join(e.get('message', str(e)) for e in result['errors'])
+        raise ValueError(f"GraphQL errors: {msgs}")
 
     nodes = result['data']['initiative']['projects']['nodes']
     snap_map = {p['id']: p for p in SNAPSHOT}
@@ -86,12 +106,12 @@ def fetch_linear():
         projects.append({
             'id': p['id'], 'name': n, 'shortName': short_name,
             'workstream': ws, 'wsIcon': WS_ICON.get(ws, ''),
-            'status': (p.get('status') or {}).get('name', 'Unknown'),
+            'status': {'started': 'In Progress', 'inProgress': 'In Progress', 'planned': 'Planned', 'paused': 'Paused', 'completed': 'Completed', 'cancelled': 'Cancelled'}.get(p.get('state') or '', p.get('state') or 'Unknown'),
             'priorityVal': p.get('priority', 4),
             'priority': PRIORITY_NAME.get(p.get('priority', 4), 'Normal'),
             'startDate': p.get('startDate') or (snap['startDate'] if snap else None),
             'targetDate': p.get('targetDate') or (snap['targetDate'] if snap else None),
-            'lead': (p.get('lead') or {}).get('name') or (snap['lead'] if snap else '—'),
+            'lead': (p.get('lead') or {}).get('displayName') or (p.get('lead') or {}).get('name') or (snap['lead'] if snap else '—'),
             'url': snap['url'] if snap else 'https://linear.app/makematter',
             'milestones': milestones,
         })
